@@ -6,12 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:window_manager_plus/window_manager_plus.dart';
 
-Future<void> main(List<String> args) async {
-  if (kDebugMode) {
-    print(args);
-  }
+Future<void> main() async {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  await WindowManagerPlus.ensureInitialized(args.isEmpty ? 0 : int.parse(args[0]));
+  await WindowManagerPlus.ensureInitialized(0);
   await WindowManagerPlus.current.waitUntilReadyToShow(
     const WindowOptions(
       size: Size(640, 480),
