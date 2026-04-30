@@ -32,6 +32,7 @@ class DragToResizeArea extends StatelessWidget {
     this.resizeEdgeSize = 8,
     this.resizeEdgeMargin = EdgeInsets.zero,
     this.enableResizeEdges,
+    this.targetWindow,
   });
 
   final Widget child;
@@ -39,6 +40,11 @@ class DragToResizeArea extends StatelessWidget {
   final Color resizeEdgeColor;
   final EdgeInsets resizeEdgeMargin;
   final List<ResizeEdge>? enableResizeEdges;
+
+  /// Window to resize when this area is dragged.
+  ///
+  /// If null, [WindowManagerPlus.current] will be used instead.
+  final WindowManagerPlus? targetWindow;
 
   Widget _buildDragToResizeEdge(
     ResizeEdge resizeEdge, {
@@ -49,6 +55,7 @@ class DragToResizeArea extends StatelessWidget {
     if (enableResizeEdges != null && !enableResizeEdges!.contains(resizeEdge)) {
       return Container();
     }
+    final currentTargetWindow = targetWindow ?? WindowManagerPlus.current;
     return Container(
       width: width,
       height: height,
@@ -56,12 +63,11 @@ class DragToResizeArea extends StatelessWidget {
       child: MouseRegion(
         cursor: cursor,
         child: GestureDetector(
-          onPanStart: (_) =>
-              WindowManagerPlus.current.startResizing(resizeEdge),
+          onPanStart: (_) => currentTargetWindow.startResizing(resizeEdge),
           onDoubleTap: () => (Platform.isWindows &&
                   (resizeEdge == ResizeEdge.top ||
                       resizeEdge == ResizeEdge.bottom))
-              ? WindowManagerPlus.current.maximize(vertically: true)
+              ? currentTargetWindow.maximize(vertically: true)
               : null,
         ),
       ),

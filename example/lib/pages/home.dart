@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:preference_list/preference_list.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager_plus/window_manager_plus.dart';
@@ -25,6 +26,95 @@ const _kMaxSizes = [
   Size(600, 600),
   Size(800, 800),
 ];
+
+// These are two custom colors that are used in the preference_list package.
+// We reuse them here for consistency.
+const gray1 = Color(0xff999999);
+const gray2 = Color(0xff9b9b9b);
+
+class ListenableInfoWidget extends StatelessWidget {
+  ListenableInfoWidget.global(
+      this.listener, this.listeningToThis, this.switchListenableCallback)
+      : title = "Global",
+        _instance = null,
+        switchTargetCallback = null,
+        targetingThis = false;
+
+  ListenableInfoWidget.fromWMP(
+      WindowManagerPlus instance,
+      this.listener,
+      this.targetingThis,
+      this.switchTargetCallback,
+      this.listeningToThis,
+      this.switchListenableCallback)
+      : title = instance.toString(),
+        _instance = instance;
+
+  final String title;
+  final WindowListener listener;
+  final bool targetingThis;
+  final Function(WindowManagerPlus?)? switchTargetCallback;
+  final bool listeningToThis;
+  final Function(WindowManagerPlus?) switchListenableCallback;
+  final WindowManagerPlus? _instance;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      constraints: const BoxConstraints(
+        minHeight: 48,
+      ),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+      child: Row(
+        children: [
+          Container(
+              height: 20,
+              width: 200,
+              alignment: Alignment.centerLeft,
+              padding: EdgeInsetsGeometry.only(left: 20),
+              child: Text(
+                title,
+                style: TextStyle(fontSize: 12),
+                textAlign: TextAlign.left,
+              )),
+          Padding(
+              padding: EdgeInsetsGeometry.symmetric(vertical: 2),
+              child: VerticalDivider(thickness: 1, color: gray2)),
+          Container(
+            height: 20,
+            width: 180,
+            alignment: Alignment.center,
+            child: _instance == null
+                ? Text('')
+                : targetingThis
+                    ? Text('Current Target', style: TextStyle(color: gray2))
+                    : TextButton(
+                        child: Text('Set Target'),
+                        onPressed: () => switchTargetCallback!(_instance),
+                      ),
+          ),
+          Padding(
+              padding: EdgeInsetsGeometry.symmetric(vertical: 2),
+              child: VerticalDivider(thickness: 1, color: gray2)),
+          Container(
+            height: 20,
+            width: 180,
+            alignment: Alignment.center,
+            child: listeningToThis
+                ? Text('Listening', style: TextStyle(color: gray2))
+                : TextButton(
+                    child: Text('Listen'),
+                    onPressed: () => switchListenableCallback(_instance),
+                  ),
+          ),
+        ],
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        spacing: 5,
+      ),
+    );
+  }
+}
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -59,13 +149,52 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
 
   final TextEditingController _methodNameController =
       TextEditingController(text: 'testMethodName');
-  final TextEditingController _firstArgController =
-      TextEditingController();
+  final TextEditingController _firstArgController = TextEditingController();
+
+  List<WindowManagerPlus> windowManagerPlusInstances = [];
+  WindowManagerPlus? listeningTo = null;
+  WindowManagerPlus? currentTarget = null;
+
+  TextEditingController idFieldController = TextEditingController();
+
+  WindowManagerPlus getTargetWMP() {
+    return currentTarget ?? WindowManagerPlus.current;
+  }
+
+  void switchListenable(WindowManagerPlus? wmp) {
+    if (WindowManagerPlus.globalListeners.contains(this)) {
+      WindowManagerPlus.removeGlobalListener(this);
+    }
+    if (listeningTo != null) {
+      listeningTo!.removeListener(this);
+    }
+    if (wmp == null) {
+      // we are switching to the global listener
+      WindowManagerPlus.addGlobalListener(this);
+      setState(() {
+        listeningTo = null;
+      });
+    } else {
+      // we are switching to a specific listener
+      wmp.addListener(this);
+      setState(() {
+        listeningTo = wmp;
+      });
+    }
+  }
+
+  void switchTarget(WindowManagerPlus? wmp) {
+    setState(() {
+      currentTarget = wmp;
+    });
+  }
 
   @override
   void initState() {
     trayManager.addListener(this);
-    WindowManagerPlus.current.addListener(this);
+    windowManagerPlusInstances.add(WindowManagerPlus.current);
+    switchListenable(WindowManagerPlus.current);
+    switchTarget(WindowManagerPlus.current);
     // WindowManagerPlus.addGlobalListener(this);
     _init();
     super.initState();
@@ -76,7 +205,8 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
     _methodNameController.dispose();
     _firstArgController.dispose();
     trayManager.removeListener(this);
-    WindowManagerPlus.current.removeListener(this);
+    switchListenable(null);
+    switchTarget(null);
     // WindowManagerPlus.removeGlobalListener(this);
     super.dispose();
   }
@@ -119,7 +249,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
           : 'images/tray_icon_original.png';
     }
 
-    await WindowManagerPlus.current.setIcon(iconPath);
+    await getTargetWMP().setIcon(iconPath);
   }
 
   Widget _buildBody(BuildContext context) {
@@ -155,6 +285,11 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               onTap: () async {
                 final newWindow = await WindowManagerPlus.createWindow(
                     ['test args 1', 'test args 2']);
+                if (newWindow != null) {
+                  setState(() {
+                    windowManagerPlusInstances.add(newWindow!);
+                  });
+                }
                 BotToast.showText(text: 'New Created Window: $newWindow');
               },
             ),
@@ -172,7 +307,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               onTap: () async {
                 final sortedWindowManagerIds =
                     (await WindowManagerPlus.getAllWindowManagerIds())
-                        .where((wId) => wId != WindowManagerPlus.current.id)
+                        // .where((wId) => wId != WindowManagerPlus.current.id)
                         .toList();
                 sortedWindowManagerIds.sort();
                 int? selectedWindowTargetId = await showDialog(
@@ -221,13 +356,10 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                 );
 
                 if (selectedWindowTargetId != null) {
-                  final response = await WindowManagerPlus.current
-                      .invokeMethodToWindow(
+                  final response = await getTargetWMP().invokeMethodToWindow(
                       selectedWindowTargetId,
                       _methodNameController.text,
-                      _firstArgController.text
-                          .trim()
-                          .isNotEmpty
+                      _firstArgController.text.trim().isNotEmpty
                           ? [_firstArgController.text.trim()]
                           : null);
                   BotToast.showText(
@@ -238,76 +370,71 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('setAsFrameless'),
               onTap: () async {
-                await WindowManagerPlus.current.setAsFrameless();
+                await getTargetWMP().setAsFrameless();
               },
             ),
             PreferenceListItem(
               title: const Text('close'),
               onTap: () async {
-                await WindowManagerPlus.current.close();
+                await getTargetWMP().close();
                 await Future.delayed(const Duration(seconds: 2));
-                await WindowManagerPlus.current.show();
+                await getTargetWMP().show();
               },
             ),
             PreferenceListSwitchItem(
               title: const Text('isPreventClose / setPreventClose'),
               onTap: () async {
-                _isPreventClose =
-                    await WindowManagerPlus.current.isPreventClose();
+                _isPreventClose = await getTargetWMP().isPreventClose();
                 BotToast.showText(text: 'isPreventClose: $_isPreventClose');
               },
               value: _isPreventClose,
               onChanged: (newValue) async {
                 _isPreventClose = newValue;
-                await WindowManagerPlus.current
-                    .setPreventClose(_isPreventClose);
+                await getTargetWMP().setPreventClose(_isPreventClose);
                 setState(() {});
               },
             ),
             PreferenceListItem(
               title: const Text('focus / blur'),
               onTap: () async {
-                await WindowManagerPlus.current.blur();
+                await getTargetWMP().blur();
                 await Future.delayed(const Duration(seconds: 2));
-                print(
-                    'isFocused: ${await WindowManagerPlus.current.isFocused()}');
+                print('isFocused: ${await getTargetWMP().isFocused()}');
                 await Future.delayed(const Duration(seconds: 2));
-                await WindowManagerPlus.current.focus();
+                await getTargetWMP().focus();
                 await Future.delayed(const Duration(seconds: 2));
-                print(
-                    'isFocused: ${await WindowManagerPlus.current.isFocused()}');
+                print('isFocused: ${await getTargetWMP().isFocused()}');
               },
             ),
             PreferenceListItem(
               title: const Text('show / hide'),
               onTap: () async {
-                await WindowManagerPlus.current.hide();
+                await getTargetWMP().hide();
                 await Future.delayed(const Duration(seconds: 2));
-                await WindowManagerPlus.current.show();
-                await WindowManagerPlus.current.focus();
+                await getTargetWMP().show();
+                await getTargetWMP().focus();
               },
             ),
             PreferenceListItem(
               title: const Text('isVisible'),
               onTap: () async {
-                bool isVisible = await WindowManagerPlus.current.isVisible();
+                bool isVisible = await getTargetWMP().isVisible();
                 BotToast.showText(
                   text: 'isVisible: $isVisible',
                 );
 
                 await Future.delayed(const Duration(seconds: 2));
-                WindowManagerPlus.current.hide();
-                isVisible = await WindowManagerPlus.current.isVisible();
+                getTargetWMP().hide();
+                isVisible = await getTargetWMP().isVisible();
                 print('isVisible: $isVisible');
                 await Future.delayed(const Duration(seconds: 2));
-                WindowManagerPlus.current.show();
+                getTargetWMP().show();
               },
             ),
             PreferenceListItem(
               title: const Text('isMaximized'),
               onTap: () async {
-                bool isMaximized =
-                    await WindowManagerPlus.current.isMaximized();
+                bool isMaximized = await getTargetWMP().isMaximized();
                 BotToast.showText(
                   text: 'isMaximized: $isMaximized',
                 );
@@ -316,40 +443,39 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('maximize / unmaximize'),
               onTap: () async {
-                WindowManagerPlus.current.maximize();
+                getTargetWMP().maximize();
                 await Future.delayed(const Duration(seconds: 2));
-                WindowManagerPlus.current.unmaximize();
+                getTargetWMP().unmaximize();
               },
             ),
             PreferenceListItem(
               title: const Text('isMinimized'),
               onTap: () async {
-                bool isMinimized =
-                    await WindowManagerPlus.current.isMinimized();
+                bool isMinimized = await getTargetWMP().isMinimized();
                 BotToast.showText(
                   text: 'isMinimized: $isMinimized',
                 );
 
                 await Future.delayed(const Duration(seconds: 2));
-                WindowManagerPlus.current.minimize();
+                getTargetWMP().minimize();
                 await Future.delayed(const Duration(seconds: 2));
-                isMinimized = await WindowManagerPlus.current.isMinimized();
+                isMinimized = await getTargetWMP().isMinimized();
                 print('isMinimized: $isMinimized');
-                WindowManagerPlus.current.restore();
+                getTargetWMP().restore();
               },
             ),
             PreferenceListItem(
               title: const Text('minimize / restore'),
               onTap: () async {
-                WindowManagerPlus.current.minimize();
+                getTargetWMP().minimize();
                 await Future.delayed(const Duration(seconds: 2));
-                WindowManagerPlus.current.restore();
+                getTargetWMP().restore();
               },
             ),
             PreferenceListItem(
               title: const Text('dock / undock'),
               onTap: () async {
-                DockSide? isDocked = await WindowManagerPlus.current.isDocked();
+                DockSide? isDocked = await getTargetWMP().isDocked();
                 BotToast.showText(text: 'isDocked: $isDocked');
               },
               accessoryView: Row(
@@ -357,21 +483,19 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('dock left'),
                     onPressed: () async {
-                      WindowManagerPlus.current
-                          .dock(side: DockSide.left, width: 500);
+                      getTargetWMP().dock(side: DockSide.left, width: 500);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('dock right'),
                     onPressed: () async {
-                      WindowManagerPlus.current
-                          .dock(side: DockSide.right, width: 500);
+                      getTargetWMP().dock(side: DockSide.right, width: 500);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('undock'),
                     onPressed: () async {
-                      WindowManagerPlus.current.undock();
+                      getTargetWMP().undock();
                     },
                   ),
                 ],
@@ -380,14 +504,13 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('isFullScreen / setFullScreen'),
               onTap: () async {
-                bool isFullScreen =
-                    await WindowManagerPlus.current.isFullScreen();
+                bool isFullScreen = await getTargetWMP().isFullScreen();
                 BotToast.showText(text: 'isFullScreen: $isFullScreen');
               },
               value: _isFullScreen,
               onChanged: (newValue) {
                 _isFullScreen = newValue;
-                WindowManagerPlus.current.setFullScreen(_isFullScreen);
+                getTargetWMP().setFullScreen(_isFullScreen);
                 setState(() {});
               },
             ),
@@ -398,25 +521,25 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('reset'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setAspectRatio(0);
+                      getTargetWMP().setAspectRatio(0);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('1:1'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setAspectRatio(1);
+                      getTargetWMP().setAspectRatio(1);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('16:9'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setAspectRatio(16 / 9);
+                      getTargetWMP().setAspectRatio(16 / 9);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('4:3'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setAspectRatio(4 / 3);
+                      getTargetWMP().setAspectRatio(4 / 3);
                     },
                   ),
                 ],
@@ -429,27 +552,25 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('transparent'),
                     onPressed: () async {
-                      WindowManagerPlus.current
-                          .setBackgroundColor(Colors.transparent);
+                      getTargetWMP().setBackgroundColor(Colors.transparent);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('red'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setBackgroundColor(Colors.red);
+                      getTargetWMP().setBackgroundColor(Colors.red);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('green'),
                     onPressed: () async {
-                      WindowManagerPlus.current
-                          .setBackgroundColor(Colors.green);
+                      getTargetWMP().setBackgroundColor(Colors.green);
                     },
                   ),
                   CupertinoButton(
                     child: const Text('blue'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setBackgroundColor(Colors.blue);
+                      getTargetWMP().setBackgroundColor(Colors.blue);
                     },
                   ),
                 ],
@@ -464,7 +585,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     _size,
                     Alignment.center,
                   );
-                  await WindowManagerPlus.current.setBounds(
+                  await getTargetWMP().setBounds(
                     // Rect.fromLTWH(
                     //   bounds.left + 10,
                     //   bounds.top + 10,
@@ -485,7 +606,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                 ],
               ),
               onTap: () async {
-                Rect bounds = await WindowManagerPlus.current.getBounds();
+                Rect bounds = await getTargetWMP().getBounds();
                 Size size = bounds.size;
                 Offset origin = bounds.topLeft;
                 BotToast.showText(
@@ -502,7 +623,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('topLeft'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.topLeft,
                           animate: true,
                         );
@@ -511,7 +632,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('topCenter'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.topCenter,
                           animate: true,
                         );
@@ -520,7 +641,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('topRight'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.topRight,
                           animate: true,
                         );
@@ -529,7 +650,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('centerLeft'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.centerLeft,
                           animate: true,
                         );
@@ -538,7 +659,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('center'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.center,
                           animate: true,
                         );
@@ -547,7 +668,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('centerRight'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.centerRight,
                           animate: true,
                         );
@@ -556,7 +677,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('bottomLeft'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.bottomLeft,
                           animate: true,
                         );
@@ -565,7 +686,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('bottomCenter'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.bottomCenter,
                           animate: true,
                         );
@@ -574,7 +695,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     CupertinoButton(
                       child: const Text('bottomRight'),
                       onPressed: () async {
-                        await WindowManagerPlus.current.setAlignment(
+                        await getTargetWMP().setAlignment(
                           Alignment.bottomRight,
                           animate: true,
                         );
@@ -588,7 +709,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('center'),
               onTap: () async {
-                await WindowManagerPlus.current.center();
+                await getTargetWMP().center();
               },
             ),
             PreferenceListItem(
@@ -598,50 +719,46 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('xy>zero'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setPosition(const Offset(0, 0));
+                      getTargetWMP().setPosition(const Offset(0, 0));
                       setState(() {});
                     },
                   ),
                   CupertinoButton(
                     child: const Text('x+20'),
                     onPressed: () async {
-                      Offset p = await WindowManagerPlus.current.getPosition();
-                      WindowManagerPlus.current
-                          .setPosition(Offset(p.dx + 20, p.dy));
+                      Offset p = await getTargetWMP().getPosition();
+                      getTargetWMP().setPosition(Offset(p.dx + 20, p.dy));
                       setState(() {});
                     },
                   ),
                   CupertinoButton(
                     child: const Text('x-20'),
                     onPressed: () async {
-                      Offset p = await WindowManagerPlus.current.getPosition();
-                      WindowManagerPlus.current
-                          .setPosition(Offset(p.dx - 20, p.dy));
+                      Offset p = await getTargetWMP().getPosition();
+                      getTargetWMP().setPosition(Offset(p.dx - 20, p.dy));
                       setState(() {});
                     },
                   ),
                   CupertinoButton(
                     child: const Text('y+20'),
                     onPressed: () async {
-                      Offset p = await WindowManagerPlus.current.getPosition();
-                      WindowManagerPlus.current
-                          .setPosition(Offset(p.dx, p.dy + 20));
+                      Offset p = await getTargetWMP().getPosition();
+                      getTargetWMP().setPosition(Offset(p.dx, p.dy + 20));
                       setState(() {});
                     },
                   ),
                   CupertinoButton(
                     child: const Text('y-20'),
                     onPressed: () async {
-                      Offset p = await WindowManagerPlus.current.getPosition();
-                      WindowManagerPlus.current
-                          .setPosition(Offset(p.dx, p.dy - 20));
+                      Offset p = await getTargetWMP().getPosition();
+                      getTargetWMP().setPosition(Offset(p.dx, p.dy - 20));
                       setState(() {});
                     },
                   ),
                 ],
               ),
               onTap: () async {
-                Offset position = await WindowManagerPlus.current.getPosition();
+                Offset position = await getTargetWMP().getPosition();
                 BotToast.showText(
                   text: position.toString(),
                 );
@@ -652,15 +769,15 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               accessoryView: CupertinoButton(
                 child: const Text('Set'),
                 onPressed: () async {
-                  Size size = await WindowManagerPlus.current.getSize();
-                  WindowManagerPlus.current.setSize(
+                  Size size = await getTargetWMP().getSize();
+                  getTargetWMP().setSize(
                     Size(size.width + 100, size.height + 100),
                   );
                   setState(() {});
                 },
               ),
               onTap: () async {
-                Size size = await WindowManagerPlus.current.getSize();
+                Size size = await getTargetWMP().getSize();
                 BotToast.showText(
                   text: size.toString(),
                 );
@@ -671,7 +788,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               accessoryView: ToggleButtons(
                 onPressed: (int index) {
                   _minSize = _kMinSizes[index];
-                  WindowManagerPlus.current.setMinimumSize(_minSize!);
+                  getTargetWMP().setMinimumSize(_minSize!);
                   setState(() {});
                 },
                 isSelected: _kMinSizes.map((e) => e == _minSize).toList(),
@@ -686,7 +803,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               accessoryView: ToggleButtons(
                 onPressed: (int index) {
                   _maxSize = _kMaxSizes[index];
-                  WindowManagerPlus.current.setMaximumSize(_maxSize!);
+                  getTargetWMP().setMaximumSize(_maxSize!);
                   setState(() {});
                 },
                 isSelected: _kMaxSizes.map((e) => e == _maxSize).toList(),
@@ -699,43 +816,40 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('isResizable / setResizable'),
               onTap: () async {
-                bool isResizable =
-                    await WindowManagerPlus.current.isResizable();
+                bool isResizable = await getTargetWMP().isResizable();
                 BotToast.showText(text: 'isResizable: $isResizable');
               },
               value: _isResizable,
               onChanged: (newValue) {
                 _isResizable = newValue;
-                WindowManagerPlus.current.setResizable(_isResizable);
+                getTargetWMP().setResizable(_isResizable);
                 setState(() {});
               },
             ),
             PreferenceListSwitchItem(
               title: const Text('isMovable / setMovable'),
               onTap: () async {
-                bool isMovable = await WindowManagerPlus.current.isMovable();
+                bool isMovable = await getTargetWMP().isMovable();
                 BotToast.showText(text: 'isMovable: $isMovable');
               },
               value: _isMovable,
               onChanged: (newValue) {
                 _isMovable = newValue;
-                WindowManagerPlus.current.setMovable(_isMovable);
+                getTargetWMP().setMovable(_isMovable);
                 setState(() {});
               },
             ),
             PreferenceListSwitchItem(
               title: const Text('isMinimizable / setMinimizable'),
               onTap: () async {
-                _isMinimizable =
-                    await WindowManagerPlus.current.isMinimizable();
+                _isMinimizable = await getTargetWMP().isMinimizable();
                 setState(() {});
                 BotToast.showText(text: 'isMinimizable: $_isMinimizable');
               },
               value: _isMinimizable,
               onChanged: (newValue) async {
-                await WindowManagerPlus.current.setMinimizable(newValue);
-                _isMinimizable =
-                    await WindowManagerPlus.current.isMinimizable();
+                await getTargetWMP().setMinimizable(newValue);
+                _isMinimizable = await getTargetWMP().isMinimizable();
                 print('isMinimizable: $_isMinimizable');
                 setState(() {});
               },
@@ -743,16 +857,14 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('isMaximizable / setMaximizable'),
               onTap: () async {
-                _isMaximizable =
-                    await WindowManagerPlus.current.isMaximizable();
+                _isMaximizable = await getTargetWMP().isMaximizable();
                 setState(() {});
                 BotToast.showText(text: 'isClosable: $_isMaximizable');
               },
               value: _isMaximizable,
               onChanged: (newValue) async {
-                await WindowManagerPlus.current.setMaximizable(newValue);
-                _isMaximizable =
-                    await WindowManagerPlus.current.isMaximizable();
+                await getTargetWMP().setMaximizable(newValue);
+                _isMaximizable = await getTargetWMP().isMaximizable();
                 print('isMaximizable: $_isMaximizable');
                 setState(() {});
               },
@@ -760,14 +872,14 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('isClosable / setClosable'),
               onTap: () async {
-                _isClosable = await WindowManagerPlus.current.isClosable();
+                _isClosable = await getTargetWMP().isClosable();
                 setState(() {});
                 BotToast.showText(text: 'isClosable: $_isClosable');
               },
               value: _isClosable,
               onChanged: (newValue) async {
-                await WindowManagerPlus.current.setClosable(newValue);
-                _isClosable = await WindowManagerPlus.current.isClosable();
+                await getTargetWMP().setClosable(newValue);
+                _isClosable = await getTargetWMP().isClosable();
                 print('isClosable: $_isClosable');
                 setState(() {});
               },
@@ -775,42 +887,39 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('isAlwaysOnTop / setAlwaysOnTop'),
               onTap: () async {
-                bool isAlwaysOnTop =
-                    await WindowManagerPlus.current.isAlwaysOnTop();
+                bool isAlwaysOnTop = await getTargetWMP().isAlwaysOnTop();
                 BotToast.showText(text: 'isAlwaysOnTop: $isAlwaysOnTop');
               },
               value: _isAlwaysOnTop,
               onChanged: (newValue) {
                 _isAlwaysOnTop = newValue;
-                WindowManagerPlus.current.setAlwaysOnTop(_isAlwaysOnTop);
+                getTargetWMP().setAlwaysOnTop(_isAlwaysOnTop);
                 setState(() {});
               },
             ),
             PreferenceListSwitchItem(
               title: const Text('isAlwaysOnBottom / setAlwaysOnBottom'),
               onTap: () async {
-                bool isAlwaysOnBottom =
-                    await WindowManagerPlus.current.isAlwaysOnBottom();
+                bool isAlwaysOnBottom = await getTargetWMP().isAlwaysOnBottom();
                 BotToast.showText(text: 'isAlwaysOnBottom: $isAlwaysOnBottom');
               },
               value: _isAlwaysOnBottom,
               onChanged: (newValue) async {
                 _isAlwaysOnBottom = newValue;
-                await WindowManagerPlus.current
-                    .setAlwaysOnBottom(_isAlwaysOnBottom);
+                await getTargetWMP().setAlwaysOnBottom(_isAlwaysOnBottom);
                 setState(() {});
               },
             ),
             PreferenceListItem(
               title: const Text('getTitle / setTitle'),
               onTap: () async {
-                String title = await WindowManagerPlus.current.getTitle();
+                String title = await getTargetWMP().getTitle();
                 BotToast.showText(
                   text: title.toString(),
                 );
                 title =
-                    'Window ID ${WindowManagerPlus.current.id} - ${DateTime.now().millisecondsSinceEpoch}';
-                await WindowManagerPlus.current.setTitle(title);
+                    'Window ID ${getTargetWMP().id} - ${DateTime.now().millisecondsSinceEpoch}';
+                await getTargetWMP().setTitle(title);
               },
             ),
             PreferenceListItem(
@@ -820,7 +929,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('normal'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setTitleBarStyle(
+                      getTargetWMP().setTitleBarStyle(
                         TitleBarStyle.normal,
                         windowButtonVisibility: true,
                       );
@@ -830,7 +939,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('hidden'),
                     onPressed: () async {
-                      WindowManagerPlus.current.setTitleBarStyle(
+                      getTargetWMP().setTitleBarStyle(
                         TitleBarStyle.hidden,
                         windowButtonVisibility: false,
                       );
@@ -844,8 +953,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('getTitleBarHeight'),
               onTap: () async {
-                int titleBarHeight =
-                    await WindowManagerPlus.current.getTitleBarHeight();
+                int titleBarHeight = await getTargetWMP().getTitleBarHeight();
                 BotToast.showText(
                   text: 'titleBarHeight: $titleBarHeight',
                 );
@@ -854,8 +962,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('isSkipTaskbar'),
               onTap: () async {
-                bool isSkipping =
-                    await WindowManagerPlus.current.isSkipTaskbar();
+                bool isSkipping = await getTargetWMP().isSkipTaskbar();
                 BotToast.showText(
                   text: 'isSkipTaskbar: $isSkipping',
                 );
@@ -867,9 +974,9 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                 setState(() {
                   _isSkipTaskbar = !_isSkipTaskbar;
                 });
-                await WindowManagerPlus.current.setSkipTaskbar(_isSkipTaskbar);
+                await getTargetWMP().setSkipTaskbar(_isSkipTaskbar);
                 await Future.delayed(const Duration(seconds: 3));
-                WindowManagerPlus.current.show();
+                getTargetWMP().show();
               },
             ),
             PreferenceListItem(
@@ -880,11 +987,11 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     _progress = i / 100;
                   });
                   print(_progress);
-                  await WindowManagerPlus.current.setProgressBar(_progress);
+                  await getTargetWMP().setProgressBar(_progress);
                   await Future.delayed(const Duration(milliseconds: 100));
                 }
                 await Future.delayed(const Duration(milliseconds: 1000));
-                await WindowManagerPlus.current.setProgressBar(-1);
+                await getTargetWMP().setProgressBar(-1);
               },
             ),
             PreferenceListItem(
@@ -909,7 +1016,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               ),
               onTap: () async {
                 bool isVisibleOnAllWorkspaces =
-                    await WindowManagerPlus.current.isVisibleOnAllWorkspaces();
+                    await getTargetWMP().isVisibleOnAllWorkspaces();
                 BotToast.showText(
                   text: 'isVisibleOnAllWorkspaces: $isVisibleOnAllWorkspaces',
                 );
@@ -917,7 +1024,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               value: _isVisibleOnAllWorkspaces,
               onChanged: (newValue) {
                 _isVisibleOnAllWorkspaces = newValue;
-                WindowManagerPlus.current.setVisibleOnAllWorkspaces(
+                getTargetWMP().setVisibleOnAllWorkspaces(
                   _isVisibleOnAllWorkspaces,
                   visibleOnFullScreen: _isVisibleOnAllWorkspaces,
                 );
@@ -931,13 +1038,13 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   CupertinoButton(
                     child: const Text('null'),
                     onPressed: () async {
-                      await WindowManagerPlus.current.setBadgeLabel();
+                      await getTargetWMP().setBadgeLabel();
                     },
                   ),
                   CupertinoButton(
                     child: const Text('99+'),
                     onPressed: () async {
-                      await WindowManagerPlus.current.setBadgeLabel('99+');
+                      await getTargetWMP().setBadgeLabel('99+');
                     },
                   ),
                 ],
@@ -947,7 +1054,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListSwitchItem(
               title: const Text('hasShadow / setHasShadow'),
               onTap: () async {
-                bool hasShadow = await WindowManagerPlus.current.hasShadow();
+                bool hasShadow = await getTargetWMP().hasShadow();
                 BotToast.showText(
                   text: 'hasShadow: $hasShadow',
                 );
@@ -955,14 +1062,14 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               value: _hasShadow,
               onChanged: (newValue) {
                 _hasShadow = newValue;
-                WindowManagerPlus.current.setHasShadow(_hasShadow);
+                getTargetWMP().setHasShadow(_hasShadow);
                 setState(() {});
               },
             ),
             PreferenceListItem(
               title: const Text('getOpacity / setOpacity'),
               onTap: () async {
-                double opacity = await WindowManagerPlus.current.getOpacity();
+                double opacity = await getTargetWMP().getOpacity();
                 BotToast.showText(
                   text: 'opacity: $opacity',
                 );
@@ -973,7 +1080,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     child: const Text('1'),
                     onPressed: () async {
                       _opacity = 1;
-                      WindowManagerPlus.current.setOpacity(_opacity);
+                      getTargetWMP().setOpacity(_opacity);
                       setState(() {});
                     },
                   ),
@@ -981,7 +1088,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     child: const Text('0.8'),
                     onPressed: () async {
                       _opacity = 0.8;
-                      WindowManagerPlus.current.setOpacity(_opacity);
+                      getTargetWMP().setOpacity(_opacity);
                       setState(() {});
                     },
                   ),
@@ -989,7 +1096,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                     child: const Text('0.6'),
                     onPressed: () async {
                       _opacity = 0.5;
-                      WindowManagerPlus.current.setOpacity(_opacity);
+                      getTargetWMP().setOpacity(_opacity);
                       setState(() {});
                     },
                   ),
@@ -1001,7 +1108,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
               value: _isIgnoreMouseEvents,
               onChanged: (newValue) async {
                 _isIgnoreMouseEvents = newValue;
-                await WindowManagerPlus.current.setIgnoreMouseEvents(
+                await getTargetWMP().setIgnoreMouseEvents(
                   _isIgnoreMouseEvents,
                   forward: false,
                 );
@@ -1011,19 +1118,19 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
             PreferenceListItem(
               title: const Text('popUpWindowMenu'),
               onTap: () async {
-                await WindowManagerPlus.current.popUpWindowMenu();
+                await getTargetWMP().popUpWindowMenu();
               },
             ),
             // PreferenceListItem(
             //   title: const Text('grabKeyboard'),
             //   onTap: () async {
-            //     await WindowManagerPlus.current.grabKeyboard();
+            //     await getTargetWMP().grabKeyboard();
             //   },
             // ),
             // PreferenceListItem(
             //   title: const Text('ungrabKeyboard'),
             //   onTap: () async {
-            //     await WindowManagerPlus.current.ungrabKeyboard();
+            //     await getTargetWMP().ungrabKeyboard();
             //   },
             // ),
           ],
@@ -1039,14 +1146,6 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
           margin: const EdgeInsets.all(0),
           decoration: const BoxDecoration(
             color: Colors.white,
-            // border: Border.all(color: Colors.grey.withOpacity(0.4), width: 1),
-            // boxShadow: <BoxShadow>[
-            //   BoxShadow(
-            //     color: Colors.black.withOpacity(0.2),
-            //     offset: Offset(1.0, 1.0),
-            //     blurRadius: 6.0,
-            //   ),
-            // ],
           ),
           child: Scaffold(
             appBar: _isFullScreen
@@ -1060,29 +1159,123 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                   ),
             body: Column(
               children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onPanStart: (details) {
-                    WindowManagerPlus.current.startDragging();
-                  },
-                  onDoubleTap: () async {
-                    bool isMaximized =
-                        await WindowManagerPlus.current.isMaximized();
-                    if (!isMaximized) {
-                      WindowManagerPlus.current.maximize();
-                    } else {
-                      WindowManagerPlus.current.unmaximize();
-                    }
-                  },
+                Container(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+                    child: IntrinsicHeight(
+                        child: Row(
+                      children: [
+                        SizedBox(
+                          height: 30,
+                          width: 200,
+                          child: Container(),
+                        ),
+                        Padding(
+                            padding: EdgeInsetsGeometry.symmetric(vertical: 2),
+                            child: VerticalDivider(thickness: 1, color: gray2)),
+                        Container(
+                          height: 30,
+                          width: 180,
+                          alignment: Alignment.centerLeft,
+                          child: Text('Target window:'),
+                        ),
+                        Padding(
+                            padding: EdgeInsetsGeometry.symmetric(vertical: 2),
+                            child: VerticalDivider(thickness: 1, color: gray2)),
+                        Container(
+                          height: 30,
+                          width: 180,
+                          alignment: Alignment.centerLeft,
+                          child: Text('Listen to events with:'),
+                        ),
+                      ],
+                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                      spacing: 5,
+                    ))),
+                Container(
+                    height: 150,
+                    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+                    margin: EdgeInsetsGeometry.only(right: 10, left: 10),
+                    child: ListView(
+                        key: ValueKey(windowManagerPlusInstances.length +
+                            listeningTo.hashCode),
+                        children: <Widget>[
+                              ListenableInfoWidget.global(
+                                  this, listeningTo == null, switchListenable)
+                            ] +
+                            List<Widget>.generate(
+                                windowManagerPlusInstances.length * 2,
+                                (int index) {
+                              if (index % 2 == 0) {
+                                return Padding(
+                                    padding: EdgeInsetsGeometry.symmetric(
+                                        horizontal: 2),
+                                    child:
+                                        Divider(thickness: 0.5, color: gray2));
+                              } else {
+                                return ListenableInfoWidget.fromWMP(
+                                    windowManagerPlusInstances[index ~/ 2],
+                                    this,
+                                    windowManagerPlusInstances[index ~/ 2] ==
+                                        currentTarget,
+                                    switchTarget,
+                                    windowManagerPlusInstances[index ~/ 2] ==
+                                        listeningTo,
+                                    switchListenable);
+                              }
+                            }))),
+                Padding(
+                  child: Row(children: [
+                    Spacer(),
+                    Padding(
+                        child: Text('Add a WindowManagerPlus instance:'),
+                        padding: EdgeInsets.fromLTRB(0, 0, 10, 0)),
+                    SizedBox(
+                      width: 50,
+                      child: TextField(
+                        controller: idFieldController,
+                        decoration: InputDecoration(
+                          labelText: 'Id',
+                          border: OutlineInputBorder(),
+                          labelStyle: TextStyle(
+                            color: gray2,
+                          ),
+                          filled: true,
+                          fillColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHigh,
+                        ),
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                        ],
+                      ),
+                    ),
+                    TextButton(
+                        child: Text('Add'),
+                        onPressed: () {
+                          int? result = int.tryParse(idFieldController.text);
+                          if (result != null) {
+                            setState(() {
+                              windowManagerPlusInstances
+                                  .add(WindowManagerPlus.fromWindowId(result));
+                              idFieldController.clear();
+                            });
+                          }
+                        })
+                  ]),
+                  padding: EdgeInsets.fromLTRB(10, 10, 10, 20),
+                ),
+                DragToMoveArea(
                   child: Container(
                     margin: const EdgeInsets.all(0),
                     width: double.infinity,
                     height: 54,
-                    color: Colors.grey.withOpacity(0.3),
+                    color: gray2.withOpacity(0.3),
                     child: const Center(
                       child: Text('DragToMoveArea'),
                     ),
                   ),
+                  targetWindow: getTargetWMP(),
                 ),
                 if (Platform.isLinux || Platform.isWindows)
                   Container(
@@ -1094,7 +1287,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                       child: Container(
                         width: double.infinity,
                         height: double.infinity,
-                        color: Colors.grey.withOpacity(0.3),
+                        color: gray2.withOpacity(0.3),
                         child: Center(
                           child: GestureDetector(
                             child: const Text('DragToResizeArea'),
@@ -1106,6 +1299,7 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
                           ),
                         ),
                       ),
+                      targetWindow: getTargetWMP(),
                     ),
                   ),
                 Expanded(
@@ -1124,12 +1318,12 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
     return MouseRegion(
       onEnter: (_) {
         if (_isIgnoreMouseEvents) {
-          WindowManagerPlus.current.setOpacity(1.0);
+          getTargetWMP().setOpacity(1.0);
         }
       },
       onExit: (_) {
         if (_isIgnoreMouseEvents) {
-          WindowManagerPlus.current.setOpacity(0.5);
+          getTargetWMP().setOpacity(0.5);
         }
       },
       child: _build(context),
@@ -1150,12 +1344,11 @@ class _HomePageState extends State<HomePage> with TrayListener, WindowListener {
   Future<void> onTrayMenuItemClick(MenuItem menuItem) async {
     switch (menuItem.key) {
       case 'show_window':
-        await WindowManagerPlus.current.focus();
+        await getTargetWMP().focus();
         break;
       case 'set_ignore_mouse_events':
         _isIgnoreMouseEvents = false;
-        await WindowManagerPlus.current
-            .setIgnoreMouseEvents(_isIgnoreMouseEvents);
+        await getTargetWMP().setIgnoreMouseEvents(_isIgnoreMouseEvents);
         setState(() {});
         break;
     }

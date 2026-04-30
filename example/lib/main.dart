@@ -67,6 +67,8 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       themeMode: _themeMode,
+      theme: ThemeData.light(),
+      darkTheme: ThemeData.dark(),
       builder: (context, child) {
         child = virtualWindowFrameBuilder(context, child);
         child = botToastBuilder(context, child);

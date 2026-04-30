@@ -23,23 +23,30 @@ class DragToMoveArea extends StatelessWidget {
   const DragToMoveArea({
     super.key,
     required this.child,
+    this.targetWindow,
   });
 
   final Widget child;
 
+  /// Window to move when this area is dragged.
+  ///
+  /// If null, [WindowManagerPlus.current] will be used instead.
+  final WindowManagerPlus? targetWindow;
+
   @override
   Widget build(BuildContext context) {
+    final currentTargetWindow = targetWindow ?? WindowManagerPlus.current;
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onPanStart: (details) {
-        WindowManagerPlus.current.startDragging();
+        currentTargetWindow.startDragging();
       },
       onDoubleTap: () async {
-        bool isMaximized = await WindowManagerPlus.current.isMaximized();
+        bool isMaximized = await currentTargetWindow.isMaximized();
         if (!isMaximized) {
-          WindowManagerPlus.current.maximize();
+          currentTargetWindow.maximize();
         } else {
-          WindowManagerPlus.current.unmaximize();
+          currentTargetWindow.unmaximize();
         }
       },
       child: child,
