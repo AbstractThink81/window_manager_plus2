@@ -74,13 +74,21 @@ class WindowManagerPlus {
     int? windowId = call.arguments['windowId'];
 
     if (windowId != null) {
+      //
+      // Why are initialized events and close events special???????????
+      //
+      //
       if (eventName == kWindowEventInitialized) {
+        // if there is an active completer for an initialized event with the
+        // same id as windowId then complete it and then remove it from _completers
         if (_completers[windowId] != null &&
             !_completers[windowId]!.isCompleted) {
           _completers[windowId]?.complete();
         }
         _completers.remove(windowId);
       } else if (eventName == kWindowEventClose) {
+        // if there is an active completer for a windowClose event event with the
+        // same id as windowId then complete it and then remove it from _completers
         if (_completers[windowId] != null &&
             !_completers[windowId]!.isCompleted) {
           _completers[windowId]?.complete();
@@ -151,6 +159,11 @@ class WindowManagerPlus {
           funcMap[eventName]?.call();
         }
       }
+      // so we repeat this block whether windowId is null or not, but for some
+      // reason we don't repeat the global listener block??????
+      //
+      // that is because the code block for globalListener events uses the windowId
+      //
     } else if (_current != null && _id == _current!.id) {
       for (final WindowListener listener in listeners) {
         if (!_listeners.contains(listener)) {
@@ -286,11 +299,12 @@ class WindowManagerPlus {
 
   Future<T?> _invokeMethod<T>(String method,
       [Map<String, dynamic>? arguments]) {
-    final Map<String, dynamic> args = _current?._id == _id
-        ? {}
-        : {
-            'windowId': _id,
-          };
+    // final Map<String, dynamic> args = _current?._id == _id
+    //     ? {}
+    //     : {
+    //         'windowId': _id,
+    //       };
+    final Map<String, dynamic> args = {'windowId': _id};
     if (arguments != null) {
       args.addAll(arguments);
     }
@@ -929,9 +943,13 @@ class WindowManagerPlus {
 
   /// Starts a window drag based on the specified mouse-down event.
   /// On Windows, this is disabled during full screen mode.
-  Future<void> startDragging() async {
+  Future<void> startDragging({Offset initialOffset = Offset.zero}) async {
     if (Platform.isWindows && await isFullScreen()) return;
-    await _invokeMethod('startDragging');
+    await _invokeMethod('startDragging', {
+      'devicePixelRatio': getDevicePixelRatio(),
+      'initialXOffset': initialOffset.dx,
+      'initialYOffset': initialOffset.dy,
+    });
   }
 
   /// Starts a window resize based on the specified mouse-down & mouse-move event.

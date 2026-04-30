@@ -691,7 +691,7 @@ void WindowManagerPlusPlugin::HandleMethodCall(
     wManager->PopUpWindowMenu(args);
     result->Success(flutter::EncodableValue(true));
   } else if (method_name.compare("startDragging") == 0) {
-    wManager->StartDragging();
+    wManager->StartDragging(args);
     result->Success(flutter::EncodableValue(true));
   } else if (method_name.compare("startResizing") == 0) {
     wManager->StartResizing(args);

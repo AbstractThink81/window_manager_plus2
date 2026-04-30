@@ -608,7 +608,7 @@ static FlMethodResponse* pop_up_window_menu(WindowManagerPlugin* self) {
   return FL_METHOD_RESPONSE(fl_method_success_response_new(result));
 }
 
-static FlMethodResponse* start_dragging(WindowManagerPlugin* self) {
+static FlMethodResponse* start_dragging(WindowManagerPlugin* self, FlValue* args) {
   auto window = get_window(self);
   auto screen = gtk_window_get_screen(window);
   auto display = gdk_screen_get_display(screen);
@@ -920,7 +920,7 @@ static void window_manager_plugin_handle_method_call(
   } else if (g_strcmp0(method, "popUpWindowMenu") == 0) {
     response = pop_up_window_menu(self);
   } else if (g_strcmp0(method, "startDragging") == 0) {
-    response = start_dragging(self);
+    response = start_dragging(self, args);
   } else if (g_strcmp0(method, "startResizing") == 0) {
     response = start_resizing(self, args);
   } else if (g_strcmp0(method, "grabKeyboard") == 0) {
@@ -1094,7 +1094,7 @@ void window_manager_plugin_register_with_registrar(
   plugin->window_geometry.max_height = G_MAXINT;
 
   // Disconnect all delete-event handlers first in flutter 3.10.1, which causes delete_event not working.
-  // Issues from flutter/engine: https://github.com/flutter/engine/pull/40033 
+  // Issues from flutter/engine: https://github.com/flutter/engine/pull/40033
   guint handler_id = g_signal_handler_find(get_window(plugin), G_SIGNAL_MATCH_DATA, 0, 0, NULL, NULL, fl_plugin_registrar_get_view(plugin->registrar));
   if (handler_id > 0) {
     g_signal_handler_disconnect(get_window(plugin), handler_id);

@@ -19,7 +19,7 @@ import 'package:window_manager_plus/src/window_manager.dart';
 /// )
 /// ```
 /// {@end-tool}
-class DragToMoveArea extends StatelessWidget {
+class DragToMoveArea extends StatefulWidget {
   const DragToMoveArea({
     super.key,
     required this.child,
@@ -34,22 +34,36 @@ class DragToMoveArea extends StatelessWidget {
   final WindowManagerPlus? targetWindow;
 
   @override
+  State<DragToMoveArea> createState() => _DragToMoveAreaState();
+}
+
+class _DragToMoveAreaState extends State<DragToMoveArea> {
+  Offset hoverPosition = Offset.zero;
+
+  @override
   Widget build(BuildContext context) {
-    final currentTargetWindow = targetWindow ?? WindowManagerPlus.current;
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onPanStart: (details) {
-        currentTargetWindow.startDragging();
-      },
-      onDoubleTap: () async {
-        bool isMaximized = await currentTargetWindow.isMaximized();
-        if (!isMaximized) {
-          currentTargetWindow.maximize();
-        } else {
-          currentTargetWindow.unmaximize();
-        }
-      },
-      child: child,
-    );
+    final currentTargetWindow =
+        widget.targetWindow ?? WindowManagerPlus.current;
+    return MouseRegion(
+        hitTestBehavior: HitTestBehavior.translucent,
+        onHover: (event) {
+          hoverPosition = event.position;
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onPanStart: (details) {
+            currentTargetWindow.startDragging(
+                initialOffset: details.globalPosition - hoverPosition);
+          },
+          onDoubleTap: () async {
+            bool isMaximized = await currentTargetWindow.isMaximized();
+            if (!isMaximized) {
+              currentTargetWindow.maximize();
+            } else {
+              currentTargetWindow.unmaximize();
+            }
+          },
+          child: widget.child,
+        ));
   }
 }

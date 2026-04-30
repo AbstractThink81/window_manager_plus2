@@ -127,7 +127,7 @@ class WindowManagerPlus {
   void WindowManagerPlus::SetIgnoreMouseEvents(
       const flutter::EncodableMap& args);
   void WindowManagerPlus::PopUpWindowMenu(const flutter::EncodableMap& args);
-  void WindowManagerPlus::StartDragging();
+  void WindowManagerPlus::StartDragging(const flutter::EncodableMap& args);
   void WindowManagerPlus::StartResizing(const flutter::EncodableMap& args);
 
   static int64_t WindowManagerPlus::createWindow(

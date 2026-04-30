@@ -3,51 +3,51 @@ import FlutterMacOS
 
 public class WindowManagerPlusPlugin: NSObject, FlutterPlugin {
     public static var RegisterGeneratedPlugins:((FlutterPluginRegistry) -> Void)?
-    
+
     public static func register(with registrar: FlutterPluginRegistrar) {
         let _ = WindowManagerPlusPlugin(registrar)
     }
-    
+
     private var registrar: FlutterPluginRegistrar!;
-    
+
     private var mainWindow: NSWindow {
         get {
             return (self.registrar.view?.window)!;
         }
     }
-    
+
     private var _inited: Bool = false
     private var windowManager: WindowManagerPlus = WindowManagerPlus()
-    
+
     public init(_ registrar: FlutterPluginRegistrar) {
         super.init()
         self.registrar = registrar
-        
+
         windowManager.staticChannel = FlutterMethodChannel(name: "window_manager_plus_static", binaryMessenger: registrar.messenger)
         windowManager.staticChannel?.setMethodCallHandler(staticHandle)
-        
+
         windowManager.channel = FlutterMethodChannel(name: "window_manager_plus", binaryMessenger: registrar.messenger)
         windowManager.channel?.setMethodCallHandler(handle)
     }
-    
+
     private func ensureInitialized(windowId: Int64) {
         if (!_inited) {
             windowManager.id = windowId;
             windowManager.mainWindow = mainWindow
-            
+
             windowManager.channel?.setMethodCallHandler(nil)
             windowManager.channel = FlutterMethodChannel(name: "window_manager_plus_\(windowManager.id)", binaryMessenger: registrar.messenger)
             windowManager.channel?.setMethodCallHandler(handle)
-            
+
             WindowManagerPlus.windowManagers[windowId] = windowManager
             _inited = true
         }
     }
-    
+
     public func staticHandle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let methodName: String = call.method
         let args: [String: Any] = call.arguments as? [String: Any] ?? [:]
-        
+
         switch (methodName) {
         case "createWindow":
             let encodedArgs = args["args"] as? [String] ?? []
@@ -64,17 +64,17 @@ public class WindowManagerPlusPlugin: NSObject, FlutterPlugin {
             result(FlutterMethodNotImplemented)
         }
     }
-    
+
     public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         let methodName: String = call.method
         let args: [String: Any] = call.arguments as? [String: Any] ?? [:]
         let windowId = args["windowId"] as? Int64 ?? -1;
-        
+
         var wManager = windowManager
         if windowId >= 0, let wm = WindowManagerPlus.windowManagers[windowId], let wm2 = wm {
             wManager = wm2
         }
-        
+
         switch (methodName) {
         case "ensureInitialized":
             if (windowId >= 0) {
@@ -314,14 +314,14 @@ public class WindowManagerPlusPlugin: NSObject, FlutterPlugin {
             result(true)
             break
         case "startDragging":
-            wManager.startDragging()
+            wManager.startDragging(args)
             result(true)
             break
         default:
             result(FlutterMethodNotImplemented)
         }
     }
-    
+
     deinit {
         debugPrint("WindowManagerPluginPlus dealloc")
     }

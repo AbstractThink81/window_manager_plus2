@@ -16,6 +16,7 @@
 #include "window_manager_plus.h"
 
 #include <algorithm>
+#include <iostream>
 
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "user32.lib")
@@ -980,7 +981,34 @@ void WindowManagerPlus::PopUpWindowMenu(const flutter::EncodableMap& args) {
   }
 }
 
-void WindowManagerPlus::StartDragging() {
+// void WindowManagerPlus::StartDragging(const flutter::EncodableMap& args) {
+void WindowManagerPlus::StartDragging(const flutter::EncodableMap& args) {
+  double devicePixelRatio =
+      std::get<double>(args.at(flutter::EncodableValue("devicePixelRatio")));
+
+  double xOffset = std::get<double>(args.at(flutter::EncodableValue("initialXOffset")));
+  double yOffset = std::get<double>(args.at(flutter::EncodableValue("initialYOffset")));
+
+  flutter::EncodableMap getArgs = flutter::EncodableMap();
+  getArgs[flutter::EncodableValue("devicePixelRatio")] =
+      flutter::EncodableValue(devicePixelRatio);
+
+  flutter::EncodableMap getResults = GetBounds(getArgs);
+
+  flutter::EncodableMap setArgs = flutter::EncodableMap();
+  setArgs[flutter::EncodableValue("devicePixelRatio")] =
+      flutter::EncodableValue(devicePixelRatio);
+  setArgs[flutter::EncodableValue("x")] =
+      flutter::EncodableValue(
+        std::get<double>(getResults.at(flutter::EncodableValue("x")))
+        + xOffset);
+  setArgs[flutter::EncodableValue("y")] =
+      flutter::EncodableValue(
+        std::get<double>(getResults.at(flutter::EncodableValue("y")))
+        + yOffset);
+
+  SetBounds(setArgs);
+
   ReleaseCapture();
   Undock();
   SendMessage(GetMainWindow(), WM_SYSCOMMAND, SC_MOVE | HTCAPTION, 0);
