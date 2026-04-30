@@ -74,34 +74,37 @@ class WindowManagerPlus {
     int? windowId = call.arguments['windowId'];
 
     if (windowId != null) {
-      //
-      // Why are initialized events and close events special???????????
-      //
-      //
       if (eventName == kWindowEventInitialized) {
-        // if there is an active completer for an initialized event with the
-        // same id as windowId then complete it and then remove it from _completers
         if (_completers[windowId] != null &&
             !_completers[windowId]!.isCompleted) {
           _completers[windowId]?.complete();
         }
         _completers.remove(windowId);
       } else if (eventName == kWindowEventClose) {
-        // if there is an active completer for a windowClose event event with the
-        // same id as windowId then complete it and then remove it from _completers
         if (_completers[windowId] != null &&
             !_completers[windowId]!.isCompleted) {
           _completers[windowId]?.complete();
         }
         _completers.remove(windowId);
       }
-
+    }
+    if (_current != null && _id == _current!.id) {
       for (final WindowListener listener in globalListeners) {
         if (!_globalListeners.contains(listener)) {
           break;
         }
 
-        listener.onWindowEvent(eventName, windowId);
+        if (eventName == kEventFromWindow) {
+          String method = call.arguments['method'];
+          int fromWindowId = call.arguments['fromWindowId'];
+          dynamic eventArguments = call.arguments['arguments'];
+          try {
+            return await listener.onEventFromWindow(
+                method, fromWindowId, eventArguments);
+          } catch (_) {}
+        }
+
+        listener.onWindowEvent(eventName);
         Map<String, Function> funcMap = {
           kWindowEventClose: listener.onWindowClose,
           kWindowEventFocus: listener.onWindowFocus,
@@ -119,52 +122,9 @@ class WindowManagerPlus {
           kWindowEventDocked: listener.onWindowDocked,
           kWindowEventUndocked: listener.onWindowUndocked,
         };
-        funcMap[eventName]?.call(windowId);
+        funcMap[eventName]?.call();
       }
 
-      if (_current != null && _id != _current!.id) {
-        for (final WindowListener listener in listeners) {
-          if (!_listeners.contains(listener)) {
-            break;
-          }
-
-          if (eventName == kEventFromWindow) {
-            String method = call.arguments['method'];
-            int fromWindowId = call.arguments['fromWindowId'];
-            dynamic eventArguments = call.arguments['arguments'];
-            try {
-              return await listener.onEventFromWindow(
-                  method, fromWindowId, eventArguments);
-            } catch (_) {}
-          }
-
-          listener.onWindowEvent(eventName);
-          Map<String, Function> funcMap = {
-            kWindowEventClose: listener.onWindowClose,
-            kWindowEventFocus: listener.onWindowFocus,
-            kWindowEventBlur: listener.onWindowBlur,
-            kWindowEventMaximize: listener.onWindowMaximize,
-            kWindowEventUnmaximize: listener.onWindowUnmaximize,
-            kWindowEventMinimize: listener.onWindowMinimize,
-            kWindowEventRestore: listener.onWindowRestore,
-            kWindowEventResize: listener.onWindowResize,
-            kWindowEventResized: listener.onWindowResized,
-            kWindowEventMove: listener.onWindowMove,
-            kWindowEventMoved: listener.onWindowMoved,
-            kWindowEventEnterFullScreen: listener.onWindowEnterFullScreen,
-            kWindowEventLeaveFullScreen: listener.onWindowLeaveFullScreen,
-            kWindowEventDocked: listener.onWindowDocked,
-            kWindowEventUndocked: listener.onWindowUndocked,
-          };
-          funcMap[eventName]?.call();
-        }
-      }
-      // so we repeat this block whether windowId is null or not, but for some
-      // reason we don't repeat the global listener block??????
-      //
-      // that is because the code block for globalListener events uses the windowId
-      //
-    } else if (_current != null && _id == _current!.id) {
       for (final WindowListener listener in listeners) {
         if (!_listeners.contains(listener)) {
           break;
